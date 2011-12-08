@@ -115,6 +115,7 @@ body {
 <script type="text/javascript" src="js/jquery-1.5.1.min.js"></script>
 <script type="text/javascript" src="js/jquery-ui-1.8.13.custom.min.js"></script>
 <script type="text/javascript" src="js/S1_b.js"></script>
+<script type="text/javascript" src="js/Teapot.js"></script>
 
 <!--
  ** Sproingie fragment & vertex shaders
@@ -356,6 +357,87 @@ body {
 </script>
 
 
+<script id="teapot-shader-fs" type="x-shader/x-fragment">
+    #ifdef GL_ES
+    precision highp float;
+    #endif
+
+    //varying vec4 vColor;
+    varying vec2 vTextureCoord;
+    varying vec3 vTransformedNormal;
+    varying vec4 vPosition;
+
+    uniform float uMaterialShininess;
+
+    uniform bool uShowSpecularHighlights;
+    uniform bool uUseLighting;
+    uniform bool uUseTextures;
+
+    uniform vec3 uAmbientColor;
+
+    uniform vec3 uPointLightingLocation;
+    uniform vec3 uPointLightingSpecularColor;
+    uniform vec3 uPointLightingDiffuseColor;
+
+    uniform sampler2D uSampler;
+
+    void main(void) {        
+        vec3 lightWeighting;
+        if (!uUseLighting) {
+            lightWeighting = vec3(1.0, 1.0, 1.0);
+        } else {
+            vec3 lightDirection = normalize(uPointLightingLocation - vPosition.xyz);
+            vec3 normal = normalize(vTransformedNormal);
+
+            float specularLightWeighting = 0.0;
+            if (uShowSpecularHighlights) {
+                vec3 eyeDirection = normalize(-vPosition.xyz);
+                vec3 reflectionDirection = reflect(-lightDirection, normal);
+
+                specularLightWeighting = pow(max(dot(reflectionDirection, eyeDirection), 0.0), uMaterialShininess);
+            }
+
+            float diffuseLightWeighting = max(dot(normal, lightDirection), 0.0);
+            lightWeighting = uAmbientColor
+                + uPointLightingSpecularColor * specularLightWeighting
+                + uPointLightingDiffuseColor * diffuseLightWeighting;
+        }
+
+        vec4 fragmentColor;
+        if (uUseTextures) {
+            fragmentColor = texture2D(uSampler, vec2(vTextureCoord.s, vTextureCoord.t)); 
+        } else {
+            fragmentColor = vec4(0.25, 0.41, 0.88, 1.0);
+        }
+           
+        gl_FragColor = vec4(fragmentColor.rgb * lightWeighting, fragmentColor.a);
+    }
+</script>
+
+<script id="teapot-shader-vs" type="x-shader/x-vertex">
+    attribute vec3 aVertexPosition;
+    attribute vec4 aVertexColor;
+    attribute vec3 aVertexNormal;
+    attribute vec2 aTextureCoord;
+
+    uniform mat4 uMVMatrix;
+    uniform mat4 uPMatrix;
+    uniform mat3 uNMatrix;
+    
+    varying vec2 vTextureCoord;
+    varying vec3 vTransformedNormal;
+    varying vec4 vPosition;
+    //varying vec4 vColor;
+
+    void main(void) {
+        vPosition = uMVMatrix * vec4(aVertexPosition, 1.0);
+        gl_Position = uPMatrix * vPosition;
+        //vColor = aVertexColor;
+        vTextureCoord = aTextureCoord;
+        vTransformedNormal = uNMatrix * aVertexNormal;
+    }
+</script>
+
 <script type="text/javascript">
 var DEFAULT_NUM_SPROINGIES = 42;
 var DEFAULT_SPEED          = 20;
@@ -374,6 +456,7 @@ var SP_BIT_STRIPES         = 2;
 var SP_BIT_FAT             = 4;
 
 var sproingieList = [];
+var teapotList = [];
 var mouseDown = -1;
 var lastMouseX = 0;
 var lastMouseY = 0;
@@ -402,8 +485,16 @@ var sproingieBuffers;
 var sproingieBoomBuffers;
 var groundShaderProgram;
 var sproingieShaderProgram;
+var tpshaderProgram;
 var sproingieBoomShaderProgram;
 var dotTexture;
+var mvMatrixStack = [];
+
+var teapotVertexPositionBuffer;
+var teapotVertexNormalBuffer;
+var teapotVertexTextureCoordBuffer;
+var teapotVertexIndexBuffer;
+var teapotVertexColorBuffer;
 
 var colorTime=0;
 var groundRGB = [ 0.156863, 0.156863, 0.392157 ];
@@ -546,6 +637,47 @@ function initShaders(shaderProgram, fsName, vsName) {
     shaderProgram.uMaterialAltColor = gl.getUniformLocation(shaderProgram, "uMaterialAltColor");
 }
 
+function initTeapotShaders() {
+    var fragmentShader = getShader(gl, "teapot-shader-fs");
+    var vertexShader = getShader(gl, "teapot-shader-vs");
+
+    tpshaderProgram = gl.createProgram();
+    gl.attachShader(tpshaderProgram, vertexShader);
+    gl.attachShader(tpshaderProgram, fragmentShader);
+    gl.linkProgram(tpshaderProgram);
+
+    if (!gl.getProgramParameter(tpshaderProgram, gl.LINK_STATUS)) {
+	alert("Could not initialise shaders");
+    }
+
+    gl.useProgram(tpshaderProgram);
+
+    tpshaderProgram.vertexPositionAttribute = gl.getAttribLocation(tpshaderProgram, "aVertexPosition");
+    gl.enableVertexAttribArray(tpshaderProgram.vertexPositionAttribute);
+    
+    tpshaderProgram.vertexColorAttribute = gl.getAttribLocation(tpshaderProgram, "aVertexColor");
+    gl.enableVertexAttribArray(tpshaderProgram.vertexColorAttribute);
+
+    tpshaderProgram.vertexNormalAttribute = gl.getAttribLocation(tpshaderProgram, "aVertexNormal");
+    gl.enableVertexAttribArray(tpshaderProgram.vertexNormalAttribute);
+
+    tpshaderProgram.textureCoordAttribute = gl.getAttribLocation(tpshaderProgram, "aTextureCoord");
+    gl.enableVertexAttribArray(tpshaderProgram.textureCoordAttribute);
+    
+    tpshaderProgram.pMatrixUniform = gl.getUniformLocation(tpshaderProgram, "uPMatrix");
+    tpshaderProgram.mvMatrixUniform = gl.getUniformLocation(tpshaderProgram, "uMVMatrix");
+    tpshaderProgram.nMatrixUniform = gl.getUniformLocation(tpshaderProgram, "uNMatrix");
+    tpshaderProgram.samplerUniform = gl.getUniformLocation(tpshaderProgram, "uSampler");
+    tpshaderProgram.materialShininessUniform = gl.getUniformLocation(tpshaderProgram, "uMaterialShininess");
+    tpshaderProgram.showSpecularHighlightsUniform = gl.getUniformLocation(tpshaderProgram, "uShowSpecularHighlights");
+    tpshaderProgram.useTexturesUniform = gl.getUniformLocation(tpshaderProgram, "uUseTextures");
+    tpshaderProgram.useLightingUniform = gl.getUniformLocation(tpshaderProgram, "uUseLighting");
+    tpshaderProgram.ambientColorUniform = gl.getUniformLocation(tpshaderProgram, "uAmbientColor");
+    tpshaderProgram.pointLightingLocationUniform = gl.getUniformLocation(tpshaderProgram, "uPointLightingLocation");
+    tpshaderProgram.pointLightingSpecularColorUniform = gl.getUniformLocation(tpshaderProgram, "uPointLightingSpecularColor");
+    tpshaderProgram.pointLightingDiffuseColorUniform = gl.getUniformLocation(tpshaderProgram, "uPointLightingDiffuseColor");
+}
+
 function initBoomShaders(shaderProgram, fsName, vsName) {
     var fragmentShader = getShader(gl, fsName);
     var vertexShader = getShader(gl, vsName);
@@ -671,6 +803,294 @@ function MakeNormal(v1, v2, normals) {
 	normals.push((v2[1] * v1[2]) - (v1[1] * v2[2]),
 				 (v2[2] * v1[0]) - (v1[2] * v2[0]),
 				 (v2[0] * v1[1]) - (v1[0] * v2[1]));
+}
+
+ 
+//
+// Teapot object declaration
+//
+function Teapot(index, max) {
+	this.m_X = 0;
+	this.m_Y = 0;
+	this.m_Z = 0;
+	this.m_weirdBits = 0;
+	this.m_life = ((-index * ((max > 19) ? 1.0 : 4.0)) - 2.0);
+	this.m_stage = 0.0;
+	this.m_speed = 0.0;
+	this.m_boxiness = 0.02;
+	this.m_width = 121.0;
+	this.m_R = (40 + myrand(200)) / 255.0;
+	this.m_G = (40 + myrand(200)) / 255.0;
+	this.m_B = (40 + myrand(200)) / 255.0;
+	this.m_index = index;
+}
+
+Teapot.prototype.ResetTeapot = function() {
+    this.m_life = (-30 + myrand(28));
+};
+
+Teapot.prototype.CheckCollision = function(maxStage) {
+    var len = teapotList.length;
+    var t2;
+
+    for (t2 = 0; t2 < len; ++t2) {
+        if ((t2 !== this.m_index) && (this.m_X === teapotList[t2].m_X) &&
+            (this.m_Y === teapotList[t2].m_Y) && (this.m_Z === teapotList[t2].m_Z) &&
+            (teapotList[t2].m_life > 10.0) && (teapotList[t2].m_stage < maxStage)) {
+            return true;
+        }
+    }
+    return false;
+};
+
+Teapot.prototype.AdvanceTeapot = function(nextStage) {
+    var g_higher, g_back;
+    var index = this.m_index;
+    var useDifferentSpeeds = ((weirdness > 1) && (index > 1));
+
+    if (this.m_life > 0.0) {
+        if (this.m_stage < BOOM_STAGE) {
+            nextStage *= this.m_speed;
+        }
+
+        if ((this.m_stage += nextStage) >= 12.0) {
+            if (this.m_stage >= BOOM_STAGE) {
+                if ((this.m_R -= nextStage * 0.08) < 0.0) { this.m_R = 0.0; }
+                if ((this.m_G -= nextStage * 0.08) < 0.0) { this.m_G = 0.0; }
+                if ((this.m_B -= nextStage * 0.08) < 0.0) { this.m_B = 0.0; }
+
+                if ((this.m_life -= nextStage) <= 0.0000001) {
+                    this.ResetTeapot();
+                }
+                return;
+            }
+            this.m_X += 1;
+            this.m_Y -= 2;
+            this.m_Z += 1;
+            this.m_stage -= 12.0;
+
+            if ((this.m_life > 10.0) && this.CheckCollision(6.0)) {
+                this.m_life = 10.0;
+                this.m_stage = BOOM_STAGE;
+                if ((this.m_R += 0.5) > 1.0) { this.m_R = 1.0; }
+                if ((this.m_G += 0.5) > 1.0) { this.m_G = 1.0; }
+                if ((this.m_B += 0.5) > 1.0) { this.m_B = 1.0; }
+            }
+        }
+
+        if (this.m_life < 9.0) {
+            if (this.m_stage < 1.0) {
+                this.m_stage -= nextStage * 2.0;
+                if (this.m_stage < -10.0) {
+                    this.ResetTeapot();
+                }
+            }
+        }
+        else {
+            this.m_life -= nextStage;
+        }
+    }
+    else if ((this.m_life += nextStage) >= 0.0) {
+        // A teapot is born.  Select the birthplace.
+
+        if ((index > 10) && (groundlevel > 1)) {   // High-numbered Sproinge, Gadzooks ground...
+            g_higher = -5 + myrand(9);             // ...means large birth area.
+            g_back = -8 + myrand(17);
+        }
+        else if ((index > 5) && (groundlevel > 0)) { // Medium-number Teapot, Lots of ground
+            g_higher = -5 + myrand(9);               // medium-sized birth area.
+            g_back = -4 + myrand(9);
+        }
+        else if (index > 1) {   // Small ID numbered Teapots born to small ground area.
+            g_higher = -3 + myrand(5);
+            g_back = -2 + myrand(5);
+        }
+        else if (index === 1) {  // "Second" Teapot stays near center.
+            g_higher = -2 + myrand(3);
+            g_back = -1 + myrand(3);
+        }
+        else {   // "Main" Teapot stays in center.
+            g_higher = -1;
+            g_back = 0;
+        }
+
+        if (useDifferentSpeeds && (this.m_index > 1)) {
+            g_higher += 3;
+        }
+
+        this.m_X = (-g_higher - g_back);
+        this.m_Y = (g_higher * 2);
+        this.m_Z = (g_back - g_higher);
+        this.m_life = (40 + myrand(200));
+        this.m_stage = -10.0;
+        this.m_weirdBits = 0;
+        this.m_boxiness = 0.02;
+        this.m_width = 1.0;
+
+        if (weirdness > 0) {
+            this.m_weirdBits |= SP_BIT_AIRDROP;
+
+            var probability = 52 - (weirdness * 2);
+
+            if (probability < 2) {
+                probability = 2;
+            }
+
+            if ((probability < 4) || (myrand(Math.floor(probability / 8)) === 0)) {
+                if (myrand(probability) === 0) {
+                    this.m_weirdBits |= SP_BIT_STRIPES;
+                }
+                if (myrand(probability) === 0) {
+                    this.m_weirdBits |= SP_BIT_FAT;
+                }
+                if (myrand(probability) === 0) {
+                    this.m_boxiness = (Math.random() * 0.2);
+                }
+                if (myrand(probability) === 0) {
+                    this.m_width = (Math.random() + 0.4);
+                }
+            }
+        }
+
+        this.m_R = (40 + myrand(200)) / 255.0;
+        this.m_G = (40 + myrand(200)) / 255.0;
+        this.m_B = (40 + myrand(200)) / 255.0;
+
+        if (useDifferentSpeeds) {
+            this.m_speed = (this.m_R * 2.0) + (1.0 - (40.0 / 255.0));
+        }
+        else {
+            this.m_speed = 1.0;
+        }
+
+        // This makes pink-compatible Teapots for a possible Valentine's Day easter egg.
+        //		this.m_R = 1.0;
+        //		this.m_G = (40 + myrand(200)) / 255.0;
+        //		this.m_B = (40 + myrand(200)) / 255.0;
+        // This makes black and white teapots for gray stairs.
+        //		if (myrand(2)) {
+        //			this.m_R = this.m_G = this.m_B = 40.0f / 255.0;
+        //		}
+        //		else {
+        //			this.m_R = this.m_G = this.m_B = 240.0f / 255.0;
+        //		}
+
+        if (this.CheckCollision(0.0)) {
+            // If one is already being born, just wait.
+            this.m_life = -1.0;
+        }
+    }
+};
+
+
+Teapot.prototype.RenderTeapot = function(teapotBuffers, mvMatrix) {
+    var teapotMatrix = mat4.create(mvMatrix);
+    var flipTeapotV = false;
+
+	if (this.m_stage < 0.0) {    // -10.0 to just below 0.0
+	    if (!(this.m_weirdBits & SP_BIT_AIRDROP)) {
+			mat4.translate(teapotMatrix, [this.m_X,
+				this.m_Y + (this.m_stage / 9.0),
+				this.m_Z]);
+		}
+		else {
+		    if (this.m_life < 10.0) {  // Teapot dies of old age
+			    var tall = Math.pow((this.m_stage + 10.0) / 10.0, 2.0);
+			    var wide = ((this.m_stage + 10.0) / 10.0);
+
+				mat4.translate(teapotMatrix, [this.m_X + 0.5,
+					this.m_Y + 0.01,
+					this.m_Z - 0.5]);
+				mat4.scale(teapotMatrix, [wide, tall, wide]);
+				mat4.translate(teapotMatrix, [-0.5, -0.01, 0.5]);
+			}
+			else {    // Teapot being born
+				var drop = 10.0 - ((this.m_stage + 10.0) *
+					(this.m_stage + 10.0) / 10.0);
+
+				mat4.translate(teapotMatrix, [this.m_X + 0.5,
+					this.m_Y + drop,
+					this.m_Z - 0.5]);
+				mat4.scale(teapotMatrix, [
+				    (this.m_stage + 10.0) / 10.0,
+					(this.m_stage + 10.0) / 10.0,
+					(this.m_stage + 10.0) / 10.0]);
+				mat4.translate(teapotMatrix, [-0.5, 0.0, 0.5]);
+			}
+		}
+		this.ParametricTeapot(0.0, teapotMatrix);
+		drawTeapot(teapotMatrix);
+	}
+	else if (this.m_stage >= 6.0) {
+		mat4.translate(teapotMatrix, [this.m_X + 1, this.m_Y - 1, this.m_Z - 1]);
+		mat4.rotate(teapotMatrix, -90.0 * DegToRad, [0.0, 1.0, 0.0]);
+		flipTeapotV = true;
+		this.ParametricTeapot(this.m_stage - 6.0, teapotMatrix);
+		drawTeapot(teapotMatrix);
+	}
+	else {
+		mat4.translate(teapotMatrix, [this.m_X, this.m_Y, this.m_Z]);
+		this.ParametricTeapot(this.m_stage, teapotMatrix);
+		drawTeapot(teapotMatrix);
+	}
+};
+
+Teapot.prototype.ParametricTeapot = function(fstage, teapotMatrix){
+    var fMoveX = (fstage > 2.0) ? ((Math.cos((fstage-2.0)*Math.PI*0.25)*-0.5+0.5)*fstage/6.0):0.0;
+    var fMoveY = (fstage>2.0)?((fstage<4.0)?(0.25+0.25*Math.cos((fstage-4.0)*Math.PI*0.5)):(0.5-0.1325*((fstage-4.0)*(fstage-4.0)))):0.0;
+    var fRotateZ = (fstage>1)?(Math.cos((fstage-1)*Math.PI/5.0)*-90.0+90.0):0.0;
+    mat4.translate(teapotMatrix, [fMoveX + 0.5, fMoveY, -0.5]);
+    mat4.rotate(teapotMatrix, fRotateZ * DegToRad, [0.0, 0.0, -1.0]);
+};
+
+function drawTeapot(mvMatrix) {
+
+    mvPushMatrix(mvMatrix);
+    mat4.translate(mvMatrix, [0, 0.35, 0]);
+    mat4.scale(mvMatrix, [0.04, 0.04, 0.04]);
+
+        gl.uniform1i(tpshaderProgram.showSpecularHighlightsUniform, true);
+
+        gl.uniform1i(tpshaderProgram.useLightingUniform, true);
+        gl.uniform3f(tpshaderProgram.ambientColorUniform, 0.7, 0.7, 0.7);
+        gl.uniform3f(tpshaderProgram.pointLightingLocationUniform, -10.0, 4, -20);
+        gl.uniform3f(tpshaderProgram.pointLightingSpecularColorUniform,30,30,30);
+        gl.uniform3f(tpshaderProgram.pointLightingDiffuseColorUniform,0.8,0.8,0.8);
+
+    gl.uniform1i(tpshaderProgram.samplerUniform, 0);
+
+    gl.uniform1f(tpshaderProgram.materialShininessUniform, 32.0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexPositionBuffer);
+    gl.vertexAttribPointer(tpshaderProgram.vertexPositionAttribute, teapotVertexPositionBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexTextureCoordBuffer);
+    gl.vertexAttribPointer(tpshaderProgram.textureCoordAttribute, teapotVertexTextureCoordBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexNormalBuffer);
+    gl.vertexAttribPointer(tpshaderProgram.vertexNormalAttribute, teapotVertexNormalBuffer.itemSize, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexColorBuffer);
+    gl.vertexAttribPointer(tpshaderProgram.vertexColorAttribute, teapotVertexColorBuffer.itemSize, gl.FLOAT, false, 0, 0);
+    
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, teapotVertexIndexBuffer);
+    setMatrixUniforms(tpshaderProgram, mvMatrix);
+    gl.drawElements(gl.TRIANGLES, teapotVertexIndexBuffer.numItems, gl.UNSIGNED_SHORT, 0);
+    mvPopMatrix(mvMatrix);
+}
+
+function mvPushMatrix(mvMatrix) {
+    var copy = mat4.create();
+    mat4.set(mvMatrix, copy);
+    mvMatrixStack.push(copy);
+}
+
+function mvPopMatrix(mvMatrix) {
+    if (mvMatrixStack.length == 0) {
+        throw "Invalid popMatrix!";
+    }
+    mvMatrix = mvMatrixStack.pop();
+    return mvMatrix;
 }
 
 //
@@ -1184,6 +1604,20 @@ function SetMaxSproingies(max) {
     }
 }
 
+function SetMaxTepots(max) {
+    var len = teapotList.length;
+    
+    if (len > max) {
+        teapotList = teapotList.slice(0, max);
+    }
+    else {
+        while (len < max) {
+            teapotList.push(new Teapot(len, max));
+            ++len;
+        }
+    }
+}
+
   //
   // Compute the groundBuffers
   //
@@ -1322,29 +1756,61 @@ function SetMaxSproingies(max) {
       groundBuffers.numIndices = indices.length;
   }
 
-  function initBuffers() {
-      groundBuffers = {};
-      groundBuffers.VertexPosition = gl.createBuffer();
-      groundBuffers.VertexNormal = gl.createBuffer();
-      groundBuffers.VertexIndex = gl.createBuffer();
-      
-      computeGround(worldWidth, 16, groundBuffers);
+function initBuffers() {
+    groundBuffers = {};
+    groundBuffers.VertexPosition = gl.createBuffer();
+    groundBuffers.VertexNormal = gl.createBuffer();
+    groundBuffers.VertexIndex = gl.createBuffer();
+    
+    computeGround(worldWidth, 16, groundBuffers);
+    
+    sproingieBuffers = {};
+    sproingieBuffers.VertexPosition = gl.createBuffer();
+    sproingieBuffers.VertexNormal = gl.createBuffer();
+    sproingieBuffers.VertexIndex = gl.createBuffer();
+    sproingieBuffers.UVCoords = gl.createBuffer();
+    SproingieTriangleStrip(sproingieBuffers);
+    
+    sproingieBoomBuffers = {};
+    sproingieBoomBuffers.VertexPosition = gl.createBuffer();
+    
+    gl.bindBuffer(gl.ARRAY_BUFFER, sproingieBoomBuffers.VertexPosition);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(s1_b_PNTS), gl.STATIC_DRAW);
+    sproingieBoomBuffers.itemSize = 3;
+    sproingieBoomBuffers.numItems = s1_b_PNTS.length / sproingieBoomBuffers.itemSize;
 
-      sproingieBuffers = {};
-      sproingieBuffers.VertexPosition = gl.createBuffer();
-      sproingieBuffers.VertexNormal = gl.createBuffer();
-      sproingieBuffers.VertexIndex = gl.createBuffer();
-      sproingieBuffers.UVCoords = gl.createBuffer();
-      SproingieTriangleStrip(sproingieBuffers);
-
-      sproingieBoomBuffers = {};
-      sproingieBoomBuffers.VertexPosition = gl.createBuffer();
-
-      gl.bindBuffer(gl.ARRAY_BUFFER, sproingieBoomBuffers.VertexPosition);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(s1_b_PNTS), gl.STATIC_DRAW);
-      sproingieBoomBuffers.itemSize = 3;
-      sproingieBoomBuffers.numItems = s1_b_PNTS.length / sproingieBoomBuffers.itemSize;
-  }
+    //Teapots
+    var teapotData = eval(teapotJSON);
+    teapotVertexNormalBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexNormalBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(teapotData.vertexNormals), gl.STATIC_DRAW);
+    teapotVertexNormalBuffer.itemSize = 3;
+    teapotVertexNormalBuffer.numItems = teapotData.vertexNormals.length / 3;
+    
+    teapotVertexTextureCoordBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexTextureCoordBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(teapotData.vertexTextureCoords), gl.STATIC_DRAW);
+    teapotVertexTextureCoordBuffer.itemSize = 2;
+    teapotVertexTextureCoordBuffer.numItems = teapotData.vertexTextureCoords.length / 2;
+    
+    teapotVertexPositionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexPositionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(teapotData.vertexPositions), gl.STATIC_DRAW);
+    teapotVertexPositionBuffer.itemSize = 3;
+    teapotVertexPositionBuffer.numItems = teapotData.vertexPositions.length / 3;
+    
+    teapotVertexIndexBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, teapotVertexIndexBuffer);
+    gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(teapotData.indices), gl.STATIC_DRAW);
+    teapotVertexIndexBuffer.itemSize = 1;
+    teapotVertexIndexBuffer.numItems = teapotData.indices.length;
+    
+    teapotVertexColorBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexColorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([1.0,1.0,1.0,1.0]), gl.STATIC_DRAW);
+    teapotVertexColorBuffer.itemSize = 4;
+    teapotVertexColorBuffer.numItems = 1;
+}
 
 
   function drawScene() {
@@ -1422,6 +1888,22 @@ function SetMaxSproingies(max) {
     }
     
     //
+    // Render the rolling teapot
+    //
+    gl.useProgram(tpshaderProgram);    
+    setLights(tpshaderProgram, worldMatrix);
+    setProjectionUniforms(tpshaderProgram, pMatrix, groundPos);
+    var numTeapots = teapotList.length;
+    var t;
+
+    for (t = 0; t < numTeapots; ++t) {
+        if ((teapotList[t].m_life > 0.0) &&
+            (teapotList[t].m_stage < (BOOM_STAGE - 0.001))) {
+            teapotList[t].RenderTeapot(sproingieBuffers, mvMatrix);
+        }
+    }
+    
+    //
     // Render the explosions
     //
     gl.useProgram(sproingieBoomShaderProgram);
@@ -1493,6 +1975,58 @@ function SetMaxSproingies(max) {
       /* Otherwise just hang loose for a while here */
   }
 
+function nextTeapot(timePassed) {
+      var nextStage = timePassed * howfast * 0.333333333;
+      var numTeapot = teapotList.length;
+      var t;
+
+      if ((ground += nextStage) >= 12.0) {
+          ground -= 12.0;
+          for (t = 0; t < numTeapot; ++t) {
+              teapotList[t].m_X -= 1;
+              teapotList[t].m_Y += 2;
+              teapotList[t].m_Z -= 1;
+          }
+      }
+				
+      for (t = 0; t < numTeapot; ++t) {
+          teapotList[t].AdvanceTeapot(nextStage);
+      }
+
+      if (target_wait < 0.0) {   /* track to current target */
+          var howFar = Math.pow(CAMERA_SLIDE_RATE, (timePassed * 1000.0));
+          if (howFar > 0.9999) {
+              howFar = 0.9999;
+          }
+
+          rotx = target_rx + (howFar * (rotx - target_rx));
+          roty = target_ry + (howFar * (roty - target_ry));
+          dist = target_dist + (howFar * (dist - target_dist));
+
+          if ((Math.abs(target_rx - rotx) < 0.01) &&
+			  (Math.abs(target_ry - roty) < 0.01) &&
+			  (Math.abs(target_dist - dist) < 0.01)) {
+              target_wait = max_target_wait;
+              if (target_dist <= 32) {
+                  target_wait *= 0.25;
+              }
+          }
+      }
+      else if ((target_wait -= (timePassed * 10.0)) < 0.0) {   /* make up new target */
+          var old_dist = target_dist;
+
+          target_wait = -1.0;
+          target_rx = myrand(100) - 35;
+          target_ry = -myrand(90);
+          target_dist = 32 << myrand(2);  /* could be 32, 64, or 128, (previously or 256) */
+
+          if (target_dist >= old_dist) { /* no duplicate distances */
+              target_dist *= 2.0;
+          }
+      }
+      /* Otherwise just hang loose for a while here */
+  }
+
   function animate() {
     var timeNow = new Date().getTime();
     if (lastTime !== 0) {
@@ -1522,6 +2056,7 @@ function SetMaxSproingies(max) {
 
             if (!isPaused) {
                 nextSproingie(timePassed);
+		nextTeapot(timePassed);
             }
         }
 
@@ -1635,11 +2170,12 @@ function SetMaxSproingies(max) {
     initShaders(sproingieShaderProgram, "shader-fs-sproingie", "shader-vs-sproingie");
     sproingieBoomShaderProgram = gl.createProgram();
     initBoomShaders(sproingieBoomShaderProgram, "shader-fs-boom", "shader-vs-boom");
-
+    initTeapotShaders();
     initBuffers();
     initTextures();
 
     SetMaxSproingies(DEFAULT_NUM_SPROINGIES);
+    SetMaxTepots(DEFAULT_NUM_SPROINGIES);
 
     gl.clearColor(0.0, 0.0, 0.0, 1.0);
     gl.clearDepth(1.0);
