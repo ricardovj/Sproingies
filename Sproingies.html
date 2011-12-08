@@ -754,6 +754,16 @@ function setMatrixUniforms(shaderProgram, mvMatrix) {
     gl.uniformMatrix3fv(shaderProgram.normalMatrixUniform, false, normalMatrix);
 }
 
+function setTeapotMatrixUniforms(shaderProgram, pMatrix, mvMatrix) {
+    gl.uniformMatrix4fv(shaderProgram.pMatrixUniform, false, pMatrix);
+    gl.uniformMatrix4fv(shaderProgram.mvMatrixUniform, false, mvMatrix);
+    
+    var normalMatrix = mat3.create();
+    mat4.toInverseMat3(mvMatrix, normalMatrix);
+    mat3.transpose(normalMatrix);
+    gl.uniformMatrix3fv(shaderProgram.nMatrixUniform, false, normalMatrix);
+}
+
 function setLights(shaderProgram, lightMatrix) {
     var keyPos = [16.0, 10.0, -4.0];
     mat4.multiplyVec3(lightMatrix, keyPos);
@@ -1053,8 +1063,8 @@ function drawTeapot(mvMatrix) {
 
         gl.uniform1i(tpshaderProgram.useLightingUniform, true);
         gl.uniform3f(tpshaderProgram.ambientColorUniform, 0.7, 0.7, 0.7);
-        gl.uniform3f(tpshaderProgram.pointLightingLocationUniform, -10.0, 4, -20);
-        gl.uniform3f(tpshaderProgram.pointLightingSpecularColorUniform,30,30,30);
+        gl.uniform3f(tpshaderProgram.pointLightingLocationUniform, -.1, .04, -.020);
+        gl.uniform3f(tpshaderProgram.pointLightingSpecularColorUniform,3,3,3);
         gl.uniform3f(tpshaderProgram.pointLightingDiffuseColorUniform,0.8,0.8,0.8);
 
     gl.uniform1i(tpshaderProgram.samplerUniform, 0);
@@ -1891,8 +1901,9 @@ function initBuffers() {
     // Render the rolling teapot
     //
     gl.useProgram(tpshaderProgram);    
-    setLights(tpshaderProgram, worldMatrix);
+    //setLights(tpshaderProgram, worldMatrix);
     setProjectionUniforms(tpshaderProgram, pMatrix, groundPos);
+    setTeapotMatrixUniforms(tpshaderProgram, pMatrix, worldMatrix)
     var numTeapots = teapotList.length;
     var t;
 
