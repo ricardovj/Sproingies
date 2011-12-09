@@ -363,7 +363,7 @@ body {
     #endif
 
     //varying vec4 vColor;
-    varying vec2 vTextureCoord;
+    //varying vec2 vTextureCoord;
     varying vec3 vTransformedNormal;
     varying vec4 vPosition;
 
@@ -405,7 +405,7 @@ body {
 
         vec4 fragmentColor;
         if (uUseTextures) {
-            fragmentColor = texture2D(uSampler, vec2(vTextureCoord.s, vTextureCoord.t)); 
+            //fragmentColor = texture2D(uSampler, vec2(vTextureCoord.s, vTextureCoord.t)); 
         } else {
             fragmentColor = vec4(0.25, 0.41, 0.88, 1.0);
         }
@@ -416,24 +416,18 @@ body {
 
 <script id="teapot-shader-vs" type="x-shader/x-vertex">
     attribute vec3 aVertexPosition;
-    attribute vec4 aVertexColor;
     attribute vec3 aVertexNormal;
-    attribute vec2 aTextureCoord;
 
     uniform mat4 uMVMatrix;
     uniform mat4 uPMatrix;
     uniform mat3 uNMatrix;
     
-    varying vec2 vTextureCoord;
     varying vec3 vTransformedNormal;
     varying vec4 vPosition;
-    //varying vec4 vColor;
-
+    
     void main(void) {
         vPosition = uMVMatrix * vec4(aVertexPosition, 1.0);
         gl_Position = uPMatrix * vPosition;
-        //vColor = aVertexColor;
-        vTextureCoord = aTextureCoord;
         vTransformedNormal = uNMatrix * aVertexNormal;
     }
 </script>
@@ -1057,12 +1051,12 @@ function drawTeapot(mvMatrix) {
 
     mvPushMatrix(mvMatrix);
     mat4.translate(mvMatrix, [0, 0.35, 0]);
-    mat4.scale(mvMatrix, [0.04, 0.04, 0.04]);
+    mat4.scale(mvMatrix, [.03, .04, .04]);
 
         gl.uniform1i(tpshaderProgram.showSpecularHighlightsUniform, true);
 
         gl.uniform1i(tpshaderProgram.useLightingUniform, true);
-        gl.uniform3f(tpshaderProgram.ambientColorUniform, 0.7, 0.7, 0.7);
+        gl.uniform3f(tpshaderProgram.ambientColorUniform, 0.5, 0.5, 0.5);
         gl.uniform3f(tpshaderProgram.pointLightingLocationUniform, -.1, .04, -.020);
         gl.uniform3f(tpshaderProgram.pointLightingSpecularColorUniform,3,3,3);
         gl.uniform3f(tpshaderProgram.pointLightingDiffuseColorUniform,0.8,0.8,0.8);
@@ -1817,7 +1811,7 @@ function initBuffers() {
     
     teapotVertexColorBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, teapotVertexColorBuffer);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([1.0,1.0,1.0,1.0]), gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([1.0,0.0,1.0,1.0]), gl.STATIC_DRAW);
     teapotVertexColorBuffer.itemSize = 4;
     teapotVertexColorBuffer.numItems = 1;
 }
