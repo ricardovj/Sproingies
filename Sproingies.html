@@ -362,8 +362,7 @@ body {
     precision highp float;
     #endif
 
-    //varying vec4 vColor;
-    //varying vec2 vTextureCoord;
+    varying vec2 vTextureCoord;
     varying vec3 vTransformedNormal;
     varying vec4 vPosition;
 
@@ -405,7 +404,7 @@ body {
 
         vec4 fragmentColor;
         if (uUseTextures) {
-            //fragmentColor = texture2D(uSampler, vec2(vTextureCoord.s, vTextureCoord.t)); 
+            fragmentColor = texture2D(uSampler, vec2(vTextureCoord.s, vTextureCoord.t)); 
         } else {
             fragmentColor = vec4(0.25, 0.41, 0.88, 1.0);
         }
@@ -417,17 +416,20 @@ body {
 <script id="teapot-shader-vs" type="x-shader/x-vertex">
     attribute vec3 aVertexPosition;
     attribute vec3 aVertexNormal;
+    attribute vec2 aTextureCoord;
 
     uniform mat4 uMVMatrix;
     uniform mat4 uPMatrix;
     uniform mat3 uNMatrix;
     
+    varying vec2 vTextureCoord;
     varying vec3 vTransformedNormal;
     varying vec4 vPosition;
     
     void main(void) {
         vPosition = uMVMatrix * vec4(aVertexPosition, 1.0);
         gl_Position = uPMatrix * vPosition;
+        vTextureCoord = aTextureCoord;
         vTransformedNormal = uNMatrix * aVertexNormal;
     }
 </script>
@@ -678,6 +680,31 @@ function initTeapotShaders() {
     tpshaderProgram.pointLightingDiffuseColorUniform = gl.getUniformLocation(tpshaderProgram, "uPointLightingDiffuseColor");
 }
 
+function handleTeapotLoadedTexture(texture) {
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, texture.image);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+    gl.generateMipmap(gl.TEXTURE_2D);
+
+    gl.bindTexture(gl.TEXTURE_2D, null);
+}
+
+
+var earthTexture;
+var galvanizedTexture;
+
+function initTeapotTextures() {
+    
+    galvanizedTexture = gl.createTexture();
+    galvanizedTexture.image = new Image();
+    galvanizedTexture.image.onload = function () {
+	handleTeapotLoadedTexture(galvanizedTexture)
+    }
+    galvanizedTexture.image.src = "images/arroway.de_metal+structure+06_d100_flat.jpg";
+}
+
 function initBoomShaders(shaderProgram, fsName, vsName) {
     var fragmentShader = getShader(gl, fsName);
     var vertexShader = getShader(gl, vsName);
@@ -732,6 +759,7 @@ function initTextures() {
         handleLoadedTexture(dotTexture);
     };
     dotTexture.image.src = "images/dot.png";
+    initTeapotTextures();
 }
 
 //
@@ -995,6 +1023,7 @@ Teapot.prototype.AdvanceTeapot = function(nextStage) {
 
 Teapot.prototype.RenderTeapot = function(teapotBuffers, mvMatrix) {
     var teapotMatrix = mat4.create(mvMatrix);
+    var stage = this.m_stage;
     var flipTeapotV = false;
 
 	if (this.m_stage < 0.0) {    // -10.0 to just below 0.0
@@ -1028,21 +1057,20 @@ Teapot.prototype.RenderTeapot = function(teapotBuffers, mvMatrix) {
 				mat4.translate(teapotMatrix, [-0.5, 0.0, 0.5]);
 			}
 		}
-		this.ParametricTeapot(0.0, teapotMatrix);
-		drawTeapot(teapotMatrix);
+		stage = 0.0;
 	}
 	else if (this.m_stage >= 6.0) {
 		mat4.translate(teapotMatrix, [this.m_X + 1, this.m_Y - 1, this.m_Z - 1]);
 		mat4.rotate(teapotMatrix, -90.0 * DegToRad, [0.0, 1.0, 0.0]);
 		flipTeapotV = true;
-		this.ParametricTeapot(this.m_stage - 6.0, teapotMatrix);
-		drawTeapot(teapotMatrix);
+		stage = this.m_stage - 6.0;
 	}
 	else {
-		mat4.translate(teapotMatrix, [this.m_X, this.m_Y, this.m_Z]);
-		this.ParametricTeapot(this.m_stage, teapotMatrix);
-		drawTeapot(teapotMatrix);
+	    mat4.translate(teapotMatrix, [this.m_X, this.m_Y, this.m_Z]);
+	    stage = this.m_stage;
 	}
+	this.ParametricTeapot(stage, teapotMatrix);
+	drawTeapot(teapotMatrix);
 };
 
 Teapot.prototype.ParametricTeapot = function(fstage, teapotMatrix){
@@ -1059,14 +1087,17 @@ function drawTeapot(mvMatrix) {
     mat4.translate(mvMatrix, [0, 0.35, 0]);
     mat4.scale(mvMatrix, [.03, .04, .04]);
 
-        gl.uniform1i(tpshaderProgram.showSpecularHighlightsUniform, true);
+    gl.uniform1i(tpshaderProgram.showSpecularHighlightsUniform, true);
 
-        gl.uniform1i(tpshaderProgram.useLightingUniform, true);
-        gl.uniform3f(tpshaderProgram.ambientColorUniform, 0.5, 0.5, 0.5);
-        gl.uniform3f(tpshaderProgram.pointLightingLocationUniform, -.1, .04, -.020);
-        gl.uniform3f(tpshaderProgram.pointLightingSpecularColorUniform,3,3,3);
-        gl.uniform3f(tpshaderProgram.pointLightingDiffuseColorUniform,0.8,0.8,0.8);
-
+    gl.uniform1i(tpshaderProgram.useLightingUniform, true);
+    gl.uniform3f(tpshaderProgram.ambientColorUniform, 0.5, 0.5, 0.5);
+    gl.uniform3f(tpshaderProgram.pointLightingLocationUniform, -.1, .04, -.020);
+    gl.uniform3f(tpshaderProgram.pointLightingSpecularColorUniform,3,3,3);
+    gl.uniform3f(tpshaderProgram.pointLightingDiffuseColorUniform,0.8,0.8,0.8);
+    gl.uniform1i(tpshaderProgram.useTexturesUniform, true);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, galvanizedTexture);
+        
     gl.uniform1i(tpshaderProgram.samplerUniform, 0);
 
     gl.uniform1f(tpshaderProgram.materialShininessUniform, 32.0);
