@@ -1815,6 +1815,7 @@ function animateHero(hero, sproingieMatrix) {
     var rotAngle = Math.cos(heroAnimStage*Math.PI/90)*360.0
     var fRotateZ = rotAngle+360.0;
     
+    
     if(heroAnimStage < 45){
 	mat4.rotate(sproingieMatrix, fRotateZ * DegToRad,[0.1, 0.1, .2]);
     }
