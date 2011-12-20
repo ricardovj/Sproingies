@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 
 .DS_Store
 
 js/rvTeapots.js
+=======
+*.bak
+>>>>>>> 977ae988b8d49e03ade94a6a1253de1779d8adfe
