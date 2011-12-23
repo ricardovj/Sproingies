@@ -127,7 +127,7 @@ body {
 <script type="text/javascript" src="js/jquery-ui-1.8.13.custom.min.js"></script>
 <script type="text/javascript" src="js/S1_b.js"></script>
 <script type="text/javascript" src="js/Teapot.js"></script>
-<script type="text/javascript" src="js/macbook.js"></script>
+<script type="text/javascript" src="js/Macbook.js"></script>
 
 <!--
  ** Sproingie fragment & vertex shaders
@@ -1317,8 +1317,8 @@ Sproingie.prototype.AdvanceSproingie = function (nextStage) {
 			}
 
 			if (this.m_index == 0) {
-				if (this.m_Y > 0) levelWon();
-				else playerDeath();
+				if (this.m_Y <= 0)
+				    playerDeath();
 			}
 		}
 
@@ -1487,6 +1487,13 @@ Sproingie.prototype.AdvanceSproingie = function (nextStage) {
 };
 
 Sproingie.prototype.ParametricSproingie = function (sproingie, sprType, fstage, flipSproingieV, sproingieBuffers, sproingieMatrix) {
+	if (sproingie.m_index == 0) {
+	    if (sproingie.m_Y > 5){
+		KILL_ALL = true;
+		animateHero(sproingieMatrix);
+		return;
+	    }
+	}
 	if (fstage < 0.0) {
 		fstage = 0.0;
 	}
@@ -2313,8 +2320,11 @@ function drawScene() {
 			// Send the sproingies back to 'start'
 			sproingieList[t].ResetSproingie();
 		}
-		animateHero(sproingieList[0], mvMatrix);
-		KILL_ALL = false;
+		//We still want to keep rendering the hero (for the animation)
+		gl.useProgram(sproingieShaderProgram);
+		setLights(sproingieShaderProgram, worldMatrix);
+		setProjectionUniforms(sproingieShaderProgram, pMatrix, groundPos);		
+		sproingieList[0].RenderSproingie(sproingieBuffers, mvMatrix);
 	} else {
 		sproingieList[0].RenderSproingieExplode(sproingieBuffers, mvMatrix, dist, KILL_ALL);
 	}
@@ -2323,20 +2333,31 @@ function drawScene() {
 
 var heroAnimStage = 0;
 
-function animateHero(hero, sproingieMatrix) {
+function animateHero(sproingieMatrix) {
 	heroAnimStage++;
 
 	var rotAngle = Math.cos(heroAnimStage * Math.PI / 90) * 360.0
 	var fRotateZ = rotAngle + 360.0;
-
-
-	if (heroAnimStage < 45) {
+	var stage1 = 20;
+	var stage2 = stage1 + 60;
+	var stage3 = stage2 + 40;
+	if(heroAnimStage < 20)  {
+	    var fractionToMove = heroAnimStage*2 /stage1;
+	    mat4.translate(sproingieMatrix, [fractionToMove, fractionToMove, -fractionToMove]);
+	}
+	else if (heroAnimStage < stage2) {
+		mat4.translate(sproingieMatrix, [2, 2, -2]);
 		mat4.rotate(sproingieMatrix, fRotateZ * DegToRad, [0.1, 0.1, .2]);
-	} else if (heroAnimStage < 90) {
+	} else if (heroAnimStage < stage3) {
+		mat4.translate(sproingieMatrix, [2, 2, -2]);
 		mat4.translate(sproingieMatrix, [0.5, 0, -0.5]);
-		mat4.rotate(sproingieMatrix, heroAnimStage * 10 * DegToRad, [0, 1, 0]);
-		mat4.translate(sproingieMatrix, [-0.5, 0, 0.5]);
+		mat4.rotate(sproingieMatrix, heroAnimStage * 2 * DegToRad, [0, 1, 0]);
 		mat4.rotate(sproingieMatrix, rotAngle * 2 * DegToRad, [0, 0, 1]);
+		mat4.translate(sproingieMatrix, [-0.5, 0, 0.5]);
+	} else {
+	    heroAnimStage = 0;
+	    levelWon();
+	    KILL_ALL = false;
 	}
 }
 
@@ -2505,7 +2526,7 @@ function animate() {
 				}
 			}
 
-			if (!isPaused) {
+			if (!isPaused && !KILL_ALL) {
 				nextSproingie(timePassed);
 			}
 		}
